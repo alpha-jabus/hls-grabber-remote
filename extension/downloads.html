@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HLS Grabber — Загрузки</title><link rel="stylesheet" href="downloads.css"></head>
+<body>
+  <main>
+    <header><div><h1>HLS Grabber · Загрузки</h1><p>Очередь, выполняющиеся задачи и сохранённые видео на сервере</p></div><button id="refresh">Обновить</button></header>
+    <div id="connection" role="status"></div>
+    <section class="stats" id="stats"></section>
+    <div id="jobs"></div>
+    <p class="foot">Скачанные файлы зашифрованы AES-256-GCM (.hlsaes). Для расшифровки необходим отдельный ключ с сервера. Источник и его HTTP-токены здесь не показываются.</p>
+  </main>
+  <script src="downloads.js"></script>
+</body></html>

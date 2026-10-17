@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Authenticated HLS preview/download HTTP backend. Python 3.9+ + ffmpeg/ffprobe."""
 import base64
+import hashlib
+import queue
 import hmac
 import ipaddress
 import json
@@ -18,12 +20,18 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
+from hlscrypto import load_key, encrypt_stream
+
 TOKEN = os.environ.get("HLS_API_TOKEN", "")
 BIND = os.environ.get("HLS_BIND", "127.0.0.1")
 PORT = int(os.environ.get("HLS_PORT", "8765"))
 DATA_DIR = Path(os.environ.get("HLS_DATA_DIR", str(Path.home() / "hls-grabber-data"))).expanduser()
 MAX_BYTES = int(os.environ.get("HLS_MAX_DOWNLOAD_GB", "8")) * (1024 ** 3)
 MAX_JOBS = int(os.environ.get("HLS_MAX_JOBS", "2"))
+KEY_FILE = os.environ.get("HLS_ENCRYPTION_KEY_FILE", str(Path.home() / ".config/hls-grabber-server/encryption.key"))
+ENCRYPTION_KEY = None  # loaded at startup; never returned over API
+PENDING = queue.Queue()
+WORKERS_STARTED = False
 PROBE_LIMIT = threading.BoundedSemaphore(2)
 JOB_LOCK = threading.Lock()
 HEADER_NAMES = re.compile(r"^[A-Za-z0-9-]{1,64}$")
@@ -215,52 +223,103 @@ def get_jobs():
     jobs = []
     for path in job_dir().glob("*.json"):
         try:
-            jobs.append(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
+            job = json.loads(path.read_text(encoding="utf-8"))
+            if job.get("status") == "done" and not Path(job.get("path", "")).is_file():
+                job.update(status="failed", error="Файл удалён с сервера, загрузку можно повторить")
+                save_job(job)
+            jobs.append(job)
+        except (OSError, ValueError, TypeError):
             continue
     jobs.sort(key=lambda s: s.get("created", 0), reverse=True)
     return jobs
 
 
+def source_id(url):
+    # No signed playlist URL or HTTP headers are persisted in job metadata.
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
 def worker(job, url, headers, file_format):
     job.update(status="running", started=time.time(), bytes=0, seconds=0)
     save_job(job)
-    args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
-            "-stats_period", "1", "-progress", "pipe:1"]
+    # MP4 needs fragmented output, because normal faststart MP4 cannot write to a pipe.
+    args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
     args += input_args(url, headers)
     if file_format == "mp4":
-        args += ["-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart"]
+        args += ["-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy",
+                 "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                 "-f", "mp4", "pipe:1"]
     else:
-        args += ["-map", "0", "-c", "copy"]
-    args += ["-fs", str(MAX_BYTES), job["path"]]
+        args += ["-map", "0", "-c", "copy", "-f", "matroska", "pipe:1"]
+    partial = Path(job["path"] + ".part")
+    output = Path(job["path"])
+    process = None
     try:
-        # FFmpeg arguments can be seen through /proc. Run server under a dedicated Unix user.
-        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                              stdin=subprocess.DEVNULL, text=True, bufsize=1, start_new_session=True) as process:
-            last_save = time.monotonic()
-            for line in process.stdout:
-                key, _, value = line.strip().partition("=")
-                if key == "total_size" and value.isdigit():
-                    job["bytes"] = int(value)
-                elif key in ("out_time_us", "out_time_ms") and value.isdigit():
-                    job["seconds"] = int(value) / 1000000
-                elif key == "speed":
-                    job["speed"] = value[:24]
-                if time.monotonic() - last_save > 1:
-                    save_job(job)
-                    last_save = time.monotonic()
-            code = process.wait()
-        reached_limit = os.path.getsize(job["path"]) >= MAX_BYTES if os.path.exists(job["path"]) else False
-        job.update(status="done" if code == 0 and not reached_limit else "failed", returncode=code)
-        if reached_limit:
-            job["error"] = "Превышен лимит размера загрузки, увеличь HLS_MAX_DOWNLOAD_GB."
-        elif code:
-            job["error"] = "ffmpeg завершился с ошибкой. Поток/токен мог устареть."
-    except Exception:
-        job.update(status="failed", error="Не удалось выполнить ffmpeg")
+        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   stdin=subprocess.DEVNULL, start_new_session=True)
+        # Don't use Popen as context manager: on disk-full/size-limit errors it would
+        # WAIT on ffmpeg while its output pipe is blocked. Terminate explicitly instead.
+        last_save = time.monotonic()
+        def report_progress(count):
+            nonlocal last_save
+            job["bytes"] = count
+            if time.monotonic() - last_save >= 1:
+                save_job(job)
+                last_save = time.monotonic()
+        plaintext_bytes = encrypt_stream(process.stdout, partial, ENCRYPTION_KEY, MAX_BYTES, report_progress)
+        process.stdout.close()
+        code = process.wait(timeout=20)
+        if code:
+            raise RuntimeError("ffmpeg завершился с ошибкой. Поток/токен мог устареть.")
+        if plaintext_bytes == 0:
+            raise RuntimeError("ffmpeg вернул пустое видео")
+        os.replace(partial, output)
+        job.update(status="done", bytes=plaintext_bytes, returncode=0)
+    except Exception as exc:
+        if process is not None and process.poll() is None:
+            process.kill()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        job.update(status="failed", error=str(exc)[:160])
     finally:
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+        partial.unlink(missing_ok=True)
         job["finished"] = time.time()
         save_job(job)
+
+
+def _queue_worker():
+    while True:
+        job, url, headers, file_format = PENDING.get()
+        try:
+            worker(job, url, headers, file_format)
+        except BaseException:
+            job.update(status="failed", error="Неожиданная ошибка обработчика", finished=time.time())
+            save_job(job)
+        finally:
+            PENDING.task_done()
+
+
+def ensure_workers():
+    global WORKERS_STARTED
+    with JOB_LOCK:
+        if WORKERS_STARTED:
+            return
+        if MAX_JOBS < 1:
+            raise ApiError("HLS_MAX_JOBS должен быть не меньше 1", 503)
+        # We intentionally don't store playlist URLs or browser cookies in the queue file.
+        # After a restart such tasks cannot resume and must be requested again.
+        for job in get_jobs():
+            if job.get("status") in ("queued", "running"):
+                job.update(status="failed", finished=time.time(),
+                           error="Сервер перезапущен, повтори загрузку")
+                save_job(job)
+        for index in range(MAX_JOBS):
+            threading.Thread(target=_queue_worker, name=f"hls-worker-{index}", daemon=True).start()
+        WORKERS_STARTED = True
 
 
 def start_download(request):
@@ -268,20 +327,27 @@ def start_download(request):
     file_format = request.get("format", "mp4")
     if file_format not in ("mp4", "mkv"):
         raise ApiError("Недопустимый формат")
+    if ENCRYPTION_KEY is None:
+        raise ApiError("Сервер не настроен для AES-256-GCM", 503)
+    ensure_workers()
+    sid = source_id(url)
     with JOB_LOCK:
-        if sum(j.get("status") in ("queued", "running") for j in get_jobs()) >= MAX_JOBS:
-            raise ApiError("Достигнут лимит одновременных скачиваний", 429)
+        for prev in get_jobs():
+            if prev.get("source_id") == sid and prev.get("status") in ("queued", "running", "done"):
+                # Preserve idempotency even if multiple requests arrive together.
+                return {"ok":True, "id":prev["id"], "path":prev["path"],
+                        "status":prev["status"], "existing":True}
         out_dir = DATA_DIR / "downloads"
         out_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         name = clean_name(request.get("name", "video"))
-        # Unique filename; token and source URL never go to disk.
         job_id = uuid.uuid4().hex
-        output = out_dir / f"{name}-{job_id[:8]}.{file_format}"
+        output = out_dir / f"{name}-{job_id[:8]}.{file_format}.hlsaes"
         job = {"id":job_id,"name":output.name,"path":str(output),
+               "source_id":sid,"encrypted":True,"format":file_format,
                "created":time.time(),"status":"queued"}
         save_job(job)
-        threading.Thread(target=worker, args=(job, url, headers, file_format), daemon=True).start()
-    return {"ok":True,"id":job_id,"path":str(output)}
+        PENDING.put((job, url, headers, file_format))
+    return {"ok":True,"id":job_id,"path":str(output),"status":"queued", "existing":False}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -349,12 +415,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global ENCRYPTION_KEY
     if len(TOKEN) < 32 or TOKEN.lower() in ("changeme", "test", "placeholder"):
         sys.exit("HLS_API_TOKEN: задай случайный секрет длиной не менее 32 символов")
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         sys.exit("Не найдены ffmpeg/ffprobe. Установи ffmpeg.")
+    try:
+        ENCRYPTION_KEY = load_key(KEY_FILE)
+    except (OSError, ValueError) as exc:
+        sys.exit(f"Не удалось прочитать AES-256-GCM ключ ({KEY_FILE}): {exc}")
     os.umask(0o077)
     DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    ensure_workers()
     server = ThreadingHTTPServer((BIND, PORT), Handler)
     print(f"HLS Grabber API слушает {BIND}:{PORT}; для удалённого доступа используй HTTPS reverse proxy", flush=True)
     try:

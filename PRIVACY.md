@@ -55,3 +55,8 @@ is imposed on user-owned downloads or locally stored settings.
 
 For privacy/security questions please contact the project maintainer through
 the repository's GitHub Issues (never post private URLs/tokens publicly).
+
+
+### v2.2 encrypted downloads and deduplication
+
+Remote jobs store a SHA-256 digest of the complete playlist URL (never the original URL or request headers) to recognize repeat downloads. Hash digests can potentially be guessed for predictable URLs; API access remains authenticated. Encrypted files are stored on the user's server and decrypted using an independent private key file held by the server owner. The server does not transmit this key via its API. The separate downloads tab displays job metadata only.

@@ -3,12 +3,24 @@ let activeTabId = null;
 let activeStreams = [];
 let remoteEnabled = false;
 let captureEnabled = false;
+let latestJobs = [];
+const streamButtons = new Map();
+let statusGeneration = 0;
 const DATA_TYPES = ["authenticationInfo", "browsingActivity", "websiteContent"];
 
 async function requestDataConsent() {
-  // Only invoked synchronously from a click handler, not an automatic preview.
+  // Only ask once. Consent can also be revoked in Firefox add-on settings.
+  const granted = (await browser.permissions.getAll()).data_collection || [];
+  if (DATA_TYPES.every(x => granted.includes(x))) return;
   const grant = await browser.permissions.request({data_collection: DATA_TYPES});
   if (!grant) throw new Error("Передача адресов и заголовков не разрешена");
+}
+async function requestServerHostAccess() {
+  const u = new URL(el("remoteUrl").value.trim());
+  const pattern = u.origin + "/*";
+  if (await browser.permissions.contains({origins:[pattern]})) return;
+  const accepted = await browser.permissions.request({origins:[pattern]});
+  if (!accepted) throw new Error("Firefox не разрешил подключение к адресу API " + u.origin);
 }
 
 let lastSignature = "";
@@ -105,6 +117,7 @@ async function preload(items, token) {
 }
 function renderStreams() {
   const container = el("streams"); container.replaceChildren();
+  streamButtons.clear();
   generation += 1;
   const token = generation;
   el("summary").textContent = activeStreams.length
@@ -152,12 +165,17 @@ function renderStreams() {
           type:"download", tabId:activeTabId, url:stream.url,
           name:el("filename").value, format:el("format").value
         });
-        if (response.ok) { notify("Загрузка начата: " + response.path); await reloadJobs(); }
+        if (response.ok) { notify(response.existing ? "Этот поток уже в очереди / скачан: " + response.path : "Добавлено в очередь: " + response.path); await reloadJobs(); }
         else notify(response.error || "Ошибка запуска");
       } catch (e) { notify(e.message); }
       finally { download.disabled = false; }
     });
     actions.appendChild(download);
+    if (remoteEnabled) {
+      const status = make("div", "streamState", "Проверяю очередь…");
+      wrapper.appendChild(status);
+      streamButtons.set(stream.url, {button:download, label:status});
+    }
     for (const [label,player] of [["ffmpeg",false],["ffplay",true]]) {
       const btn = make("button", "", "Копировать " + label);
       btn.addEventListener("click", () => copy(commandFor(stream, player)));
@@ -166,7 +184,10 @@ function renderStreams() {
     wrapper.appendChild(actions);
     container.appendChild(wrapper);
   });
-  if (remoteEnabled) preload(preloadItems, token).catch(() => {});
+  if (remoteEnabled) {
+    preload(preloadItems, token).catch(() => {});
+    updateStreamStatuses().catch(() => {});
+  }
 }
 async function reloadStreams() {
   if (activeTabId === null) return;
@@ -179,28 +200,37 @@ async function reloadStreams() {
     renderStreams();
   }
 }
-async function reloadJobs() {
-  const response = await browser.runtime.sendMessage({type:"jobs"});
-  const container = el("jobs"); container.replaceChildren();
-  if (!response.ok) {
-    container.appendChild(make("div", "hint", remoteEnabled ?
-      "Сервер недоступен: " + (response.error || "проверь настройки") :
-      "Локальный помощник не установлен (копирование команд работает)."));
-    return;
-  }
-  const jobs = response.jobs || [];
-  if (!jobs.length) container.appendChild(make("div", "hint", "Пока нет загрузок"));
-  const labels = {queued:"Ожидает",running:"Скачивается",done:"Готово",failed:"Ошибка"};
-  for (const job of jobs) {
-    const box = make("article", "job");
-    box.appendChild(make("div", "", `${labels[job.status] || job.status}: ${job.name || "video"}`));
-    box.appendChild(make("div", "path", job.path || ""));
-    const size = typeof job.bytes === "number" ? (job.bytes/1048576).toFixed(1) + " МБ" : "";
-    box.appendChild(make("div", "hint", [size, job.seconds ? readableSeconds(job.seconds) : "", job.speed || ""].filter(Boolean).join(" · ")));
-    if (job.status === "failed") box.appendChild(make("div", "hint", job.error || "Ошибка ffmpeg"));
-    container.appendChild(box);
+async function sourceId(url) {
+  const bytes = new TextEncoder().encode(url);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(hash)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+async function updateStreamStatuses() {
+  const run = ++statusGeneration;
+  if (!remoteEnabled) return;
+  const jobs = latestJobs;
+  for (const [url, controls] of streamButtons) {
+    const id = await sourceId(url);
+    if (run !== statusGeneration) return;
+    const matches = jobs.filter(j => j.source_id === id && ["queued", "running", "done"].includes(j.status));
+    const job = matches.sort((a,b) => (b.created || 0) - (a.created || 0))[0];
+    controls.button.disabled = Boolean(job);
+    const queuePosition = job?.status === "queued"
+      ? jobs.filter(j => j.status === "queued" && (j.created || 0) <= (job.created || 0)).length : 0;
+    controls.button.textContent = !job ? "↓ На сервер" :
+      job.status === "queued" ? `В очереди #${queuePosition}` :
+      job.status === "running" ? "Скачивается…" : "Уже скачано ✓";
+    controls.label.textContent = !job ? "" :
+      job.status === "done" ? "AES-256-GCM · уже сохранено на сервере" :
+      job.status === "queued" ? "Ожидает свободного слота" : "Шифруется и сохраняется на сервер";
   }
 }
+async function reloadJobs() {
+  const response = await browser.runtime.sendMessage({type:"jobs"});
+  latestJobs = response.ok ? (response.jobs || []) : [];
+  await updateStreamStatuses();
+}
+
 async function loadSettings() {
   const r = await browser.runtime.sendMessage({type:"getSettings"});
   const settings = r.settings || {};
@@ -242,10 +272,14 @@ el("captureToggle").addEventListener("click", async () => {
     notify(captureEnabled ? "Перехват включён. Запусти видео или обнови страницу." : "Перехват остановлен, список очищен.");
   } catch (e) { notify(e.message); }
 });
+el("downloadsPage").addEventListener("click", () => browser.tabs.create({url:browser.runtime.getURL("downloads.html")}));
 el("settingsToggle").addEventListener("click", () => el("settings").classList.toggle("hidden"));
 el("saveSettings").addEventListener("click", async () => {
   try {
-    if (el("remoteEnabled").checked) await requestDataConsent();
+    if (el("remoteEnabled").checked) {
+      await requestServerHostAccess();
+      await requestDataConsent();
+    }
   } catch (e) { notify(e.message); return; }
   const response = await browser.runtime.sendMessage({
     type:"saveSettings", enabled:el("remoteEnabled").checked,
