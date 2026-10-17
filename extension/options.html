@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HLS Grabber · Настройки</title><link rel="stylesheet" href="options.css"></head>
+<body>
+<main>
+  <header><div><h1>HLS Grabber <span>Настройки</span></h1><p>Подключение к серверу и редактирование локального JSON-конфига</p></div><button id="reload">↻ Перечитать</button></header>
+  <section class="panel">
+    <label class="check"><input id="remoteEnabled" type="checkbox"> <strong>Скачивать на удалённый сервер</strong></label>
+    <fieldset><legend>Подключение</legend>
+      <label class="check"><input type="radio" name="mode" value="pinned" checked> <strong>Закреплённый HTTPS (рекомендуется)</strong> <small>Прямое TLS-соединение через локальный помощник, без SSH</small></label>
+      <label class="check"><input type="radio" name="mode" value="direct"> <strong>Обычный HTTPS / SSH-туннель</strong> <small>Браузерный fetch, без pinning; localhost допускает HTTP</small></label>
+    </fieldset>
+    <div class="columns"><label>Адрес API <input id="remoteUrl" type="url" placeholder="https://192.168.0.190:8765" spellcheck="false" autocomplete="off"></label>
+      <label>API-токен <input id="remoteToken" type="password" placeholder="HLS_API_TOKEN" spellcheck="false" autocomplete="off"><span class="hint">Нужен токен сервера, не TLS-ключ.</span></label></div>
+    <label id="pinSection">Отпечаток SHA-256 сертификата <input id="fingerprint" type="text" placeholder="AA:BB:CC:… (openssl x509 -fingerprint -sha256)" spellcheck="false" autocomplete="off"><span class="hint">Не нажимай «доверять увиденному»: скопируй отпечаток из терминала самого сервера через доверенное соединение. Замена сертификата требует нового отпечатка.</span></label>
+    <div class="actions"><button id="save" class="primary">Сохранить конфигурацию</button><button id="check">Проверить соединение</button><button id="showToken">Показать токен</button></div>
+  </section>
+  <section class="panel">
+    <div class="sectionTitle"><div><h2>Конфигурационный файл</h2><p class="hint" id="configPath">Для pinned HTTPS: ~/.config/hls-grabber/client.json</p></div><button id="toggleRaw">Показать JSON</button></div>
+    <div id="rawArea" hidden>
+      <p class="warning">В JSON виден API-токен. Не копируй конфигурацию в публичные репозитории и чаты. Этот файл находится на твоём ПК, а не на сервере.</p>
+      <textarea id="configRaw" rows="12" spellcheck="false" aria-label="JSON-конфигурация"></textarea>
+      <div class="actions"><button id="saveRaw" class="primary">Сохранить JSON</button><button id="resetRaw">Загрузить из файла</button></div>
+    </div>
+    <p class="hint">Firefox не может произвольно редактировать локальные файлы: JSON читает и записывает установленный Native Messaging-помощник. Серверные <code>server.env</code> и <code>encryption.key</code> здесь не открываются.</p>
+  </section>
+  <section class="panel"><h2>Настройка на сервере</h2><pre>cd ~/hls-grabber-remote/server
+bash ./install-server.sh
+bash ./enable-tls.sh 192.168.0.190</pre><p>Команда выведет SHA-256 сертификата. На ПК один раз установи помощник: <code>bash ./install.sh</code>. Открой серверу порт 8765 только с доверенных адресов локальной сети.</p></section>
+  <p id="status" role="status" aria-live="polite"></p>
+</main><script src="options.js"></script></body></html>

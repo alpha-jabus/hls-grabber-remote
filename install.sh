@@ -6,6 +6,7 @@ DEST="$HOME/.local/share/hls-grabber"
 MANIFEST_DIR="$HOME/.mozilla/native-messaging-hosts"
 mkdir -p "$DEST" "$MANIFEST_DIR"
 install -m 700 "$HERE/native/hls_native.py" "$DEST/hls_native.py"
+install -m 600 "$HERE/native/pinned_client.py" "$DEST/pinned_client.py"
 python3 - "$DEST/hls_native.py" "$MANIFEST_DIR/local.hls_grabber.json" <<'PY'
 import json, sys
 from pathlib import Path

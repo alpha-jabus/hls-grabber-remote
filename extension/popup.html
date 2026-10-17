@@ -9,15 +9,8 @@
 <body>
   <header>
     <h1>HLS Grabber</h1>
-    <div><button id="downloadsPage" class="link">↓ Загрузки</button><button id="settingsToggle" class="link">⚙ Сервер</button><button id="clear" class="link">Очистить</button></div>
+    <div><button id="downloadsPage" class="link">↓ Загрузки</button><button id="settingsToggle" class="link">⚙ Настройки</button><button id="clear" class="link">Очистить</button></div>
   </header>
-  <section id="settings" class="settings hidden">
-    <label class="check"><input id="remoteEnabled" type="checkbox"> Использовать удалённый сервер</label>
-    <label class="config">Адрес API (HTTPS)<input id="remoteUrl" type="url" placeholder="https://video-api.example.com" autocomplete="off" spellcheck="false"></label>
-    <label class="config">Секретный API-токен<input id="remoteToken" type="password" placeholder="Секрет из HLS_API_TOKEN" autocomplete="off" spellcheck="false"></label>
-    <p class="hint">Токен хранится в профиле Firefox. Перед передачей URL и заголовков сайта (в том числе Cookie/Bearer) Firefox запросит отдельное согласие. Данные отправляются только по твоему действию и только на выбранный сервер. Используй только собственный сервер.</p>
-    <div class="actions"><button id="saveSettings" class="primary">Сохранить</button><button id="testRemote">Проверить</button></div>
-  </section>
   <div class="captureControl">
     <button id="captureToggle" class="primary">Включить перехват на вкладке</button>
     <span id="captureState" class="hint">Перехват выключен</span>

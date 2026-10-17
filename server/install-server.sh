@@ -31,7 +31,7 @@ if ! grep -q '^HLS_ENCRYPTION_KEY_FILE=' "$CONF_DIR/server.env"; then
 fi
 cat > "$UNIT_DIR/hls-grabber-server.service" <<EOF
 [Unit]
-Description=Private HLS Grabber HTTP backend
+Description=Private HLS Grabber API backend (HTTP / pinned HTTPS)
 After=network-online.target
 Wants=network-online.target
 
@@ -57,9 +57,10 @@ else
   echo '  set -a; source ~/.config/hls-grabber-server/server.env; set +a; python3 ~/.local/share/hls-grabber-server/server.py'
 fi
 cat <<EOF
-API: http://127.0.0.1:8765 (слушает ТОЛЬКО loopback сервера)
+API: параметры HLS_BIND / HLS_PORT / HLS_TLS_CERT из $CONF_DIR/server.env
 Токен: $CONF_DIR/server.env (права 600)
 AES-256-GCM ключ: $KEY_FILE (сохрани резервную копию отдельно; без ключа видео НЕ расшифровать)
 Файлы: $HOME/hls-grabber-data/downloads/
-Для подключения с другого ПК используй SSH-туннель или HTTPS reverse proxy.
+Для прямого HTTPS выполни от этого же пользователя: bash server/enable-tls.sh 192.168.0.190
+Порт TLS ограничь firewall: разреши доступ только со своего ПК/локальной сети.
 EOF
