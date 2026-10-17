@@ -1,0 +1,35 @@
+:root { color-scheme: dark; font: 13px system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin:0; padding:15px; background:#161c24; color:#e5ebf4; width:450px; max-height:625px; overflow-y:auto; }
+header {display:flex; justify-content:space-between;align-items:center;gap:8px;}
+h1 {font-size:18px;margin:0;font-weight:650;}
+h2 {font-size:14px;margin:18px 0 8px;}
+p {line-height:1.45;}
+.description {color:#a8b4c6;margin:7px 0 12px;}
+.hint {color:#94a3b8;font-size:12px;line-height:1.5;}
+.field {display:flex;align-items:center;gap:8px;justify-content:space-between;margin:9px 0;font-size:12px;}
+.field input, .field select, .config input {flex:1;min-width:0;max-width:305px;background:#253142;color:#f5f7fb;padding:7px 9px;border-radius:7px;border:1px solid #3a485b;}
+.streams {margin-top:12px;}
+.stream,.job,.settings {border:1px solid #374354;padding:10px;border-radius:9px;margin:9px 0;background:#1d2632;}
+.stream .name {font-weight:650;margin-bottom:5px;word-break:break-word;}
+.stream .detail {color:#9eafc3;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:8px;}
+.actions {display:flex;align-items:center;flex-wrap:wrap;gap:7px;}
+button {border:0;border-radius:7px;font:inherit;cursor:pointer;background:#344355;color:#eef4fa;padding:7px 10px;}
+button:hover {background:#43556c;}
+button:disabled {opacity:.55;cursor:wait;}
+button.primary {background:#227f74;color:white;font-weight:600;}
+button.primary:hover {background:#2d988b;}
+button.link {border:0;background:transparent;padding:4px;font-size:12px;color:#b9c8d8;}
+#message {color:#e4ce89;font-size:12px;margin:8px 0;min-height:10px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+.job {font-size:12px;}
+.job .path {color:#94a3b8;font-size:11px;overflow-wrap:anywhere;margin-top:4px;}
+.check {display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.config {display:flex;flex-direction:column;gap:4px;margin-bottom:10px;font-size:12px;}
+.config input {max-width:100%;}
+.hidden {display:none;}
+.preview {width:100%;height:180px;object-fit:contain;background:#0c1119;border-radius:6px;margin:5px 0 9px;display:block;}
+.previewPlaceholder {height:110px;background:#131b25;border:1px dashed #344355;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#96a8bd;margin:5px 0 9px;text-align:center;padding:9px;}
+.previewMeta {font-size:12px;color:#aad4c7;margin-bottom:7px;}
+#modeLabel {font-size:11px;font-weight:normal;color:#8ab5ac;}
+
+.captureControl { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin: 8px 0; }

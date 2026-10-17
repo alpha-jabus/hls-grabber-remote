@@ -1,0 +1,45 @@
+{
+  "manifest_version": 2,
+  "name": "HLS Grabber",
+  "version": "2.1.0",
+  "description": "Discover HLS playlists on enabled tabs, preview clips with your own server, or download locally.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hls-grabber@local.invalid",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ],
+        "optional": [
+          "authenticationInfo",
+          "browsingActivity",
+          "websiteContent"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "webRequest",
+    "tabs",
+    "nativeMessaging",
+    "clipboardWrite",
+    "storage"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_action": {
+    "default_title": "HLS Grabber",
+    "default_popup": "popup.html"
+  },
+  "optional_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
