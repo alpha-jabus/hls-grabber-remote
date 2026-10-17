@@ -1,0 +1,7 @@
+# Replace video-api.example.com with your DNS name pointing to this server.
+# Install Caddy and configure HTTPS certificates, then point the add-on to
+# https://video-api.example.com. Never expose 8765 directly to the Internet.
+video-api.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8765
+}

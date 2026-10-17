@@ -1,0 +1,9 @@
+*.xpi
+*.zip
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+server.env
+hls-grabber-data/
+.DS_Store
