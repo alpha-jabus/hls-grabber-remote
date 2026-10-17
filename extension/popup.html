@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>HLS Grabber</h1>
-    <div><button id="settingsToggle" class="link">⚙ Сервер</button><button id="clear" class="link">Очистить</button></div>
+    <div><button id="downloadsPage" class="link">↓ Загрузки</button><button id="settingsToggle" class="link">⚙ Сервер</button><button id="clear" class="link">Очистить</button></div>
   </header>
   <section id="settings" class="settings hidden">
     <label class="check"><input id="remoteEnabled" type="checkbox"> Использовать удалённый сервер</label>
@@ -27,8 +27,7 @@
   <label class="field">Название файла<input id="filename" type="text" maxlength="120" placeholder="video"></label>
   <label class="field">Формат<select id="format"><option value="mp4">MP4</option><option value="mkv">MKV (все дорожки)</option></select></label>
   <section id="streams" class="streams"></section>
-  <h2>Загрузки <span id="modeLabel"></span></h2>
-  <section id="jobs" class="jobs"><div class="hint">Пока нет загрузок</div></section>
+  <p class="hint">Состояние и очередь загрузок — в отдельной вкладке «↓ Загрузки». <span id="modeLabel"></span></p>
   <div id="message" role="status" aria-live="polite"></div>
   <script src="popup.js"></script>
 </body>

@@ -1,0 +1,22 @@
+:root {color-scheme:dark;font:14px system-ui,sans-serif;background:#141922;color:#e8edf5;}
+* {box-sizing:border-box}
+body {margin:0;padding:35px 22px;}
+main {max-width:960px;margin:auto;}
+header {display:flex;justify-content:space-between;align-items:center;gap:20px}
+h1 {font-size:23px;margin:0 0 5px}
+p {color:#9aa9be;margin:5px 0 16px}
+button {background:#237d70;color:#fff;border:0;padding:10px 16px;border-radius:8px;cursor:pointer}
+.stats {display:flex;gap:12px;flex-wrap:wrap;margin:22px 0}
+.stat {background:#202b38;border:1px solid #364454;border-radius:10px;padding:12px 18px;min-width:125px}
+.stat strong {font-size:22px;display:block}
+.job {background:#202b38;border:1px solid #364454;border-radius:10px;margin:10px 0;padding:14px;display:flex;align-items:center;gap:15px;justify-content:space-between;flex-wrap:wrap}
+.job strong {font-size:15px;overflow-wrap:anywhere}
+.job .path {color:#9eb1c2;font-size:12px;overflow-wrap:anywhere;margin:5px 0}
+.job .detail {color:#a5c3bb;font-size:12px}
+.status {border-radius:99px;padding:5px 12px;background:#354252;white-space:nowrap}
+.status.done {background:#20483b;color:#acf2c9}
+.status.failed {background:#4a3131;color:#ffb9b9}
+.status.running {background:#344d68;color:#a5daff}
+.status.queued {background:#52472f;color:#f2dcaa}
+.foot {margin-top:25px;font-size:12px}
+#connection {color:#ffb9b9}

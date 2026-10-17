@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "HLS Grabber",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Discover HLS playlists on enabled tabs, preview clips with your own server, or download locally.",
   "browser_specific_settings": {
     "gecko": {
