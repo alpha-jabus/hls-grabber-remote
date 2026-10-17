@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "HLS Grabber",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Discover HLS playlists on enabled tabs, preview clips with your own server, or download locally.",
   "browser_specific_settings": {
     "gecko": {
@@ -41,5 +41,9 @@
   "icons": {
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   }
 }

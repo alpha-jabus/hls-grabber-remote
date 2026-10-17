@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Firefox native messaging host and detached ffmpeg worker. Linux, Python 3.9+."""
 import json
+import base64
+from pinned_client import read_config, write_config, pinned_request, CONFIG_FILE
 import os
 from pathlib import Path
 import re
@@ -232,6 +234,19 @@ def recent_jobs():
     return records[:12]
 
 
+def respond_chunks(payload):
+    # Firefox native messaging imposes a 1-MB-per-message limit.
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    if len(encoded) < 600000:
+        respond(payload)
+        return
+    count = (len(encoded) + 449999) // 450000
+    for i in range(count):
+        part = encoded[i * 450000:(i + 1) * 450000]
+        respond({'native_chunk': True, 'part': i, 'total': count,
+                 'data': base64.b64encode(part).decode('ascii')})
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--worker":
         sys.exit(run_worker())
@@ -243,9 +258,16 @@ def main():
             respond(start_download(msg))
         elif msg.get("action") == "jobs":
             respond({"ok": True, "jobs":recent_jobs()})
+        elif msg.get("action") == "pinned_config_get":
+            respond({"ok": True, "config": read_config(), "path": str(CONFIG_FILE)})
+        elif msg.get("action") == "pinned_config_save":
+            write_config(msg.get("config"))
+            respond({"ok": True, "path": str(CONFIG_FILE)})
+        elif msg.get("action") == "pinned_request":
+            respond_chunks(pinned_request(msg.get("path"), msg.get("payload")))
         else:
             respond({"ok":False,"error":"Unknown native action"})
-    except (ValueError, OSError, EOFError) as exc:
+    except (ValueError, OSError, EOFError, TimeoutError) as exc:
         respond({"ok":False,"error":str(exc)[:400]})
 
 

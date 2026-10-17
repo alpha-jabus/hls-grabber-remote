@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import threading
@@ -25,6 +26,8 @@ from hlscrypto import load_key, encrypt_stream
 TOKEN = os.environ.get("HLS_API_TOKEN", "")
 BIND = os.environ.get("HLS_BIND", "127.0.0.1")
 PORT = int(os.environ.get("HLS_PORT", "8765"))
+TLS_CERT = os.environ.get("HLS_TLS_CERT", "")
+TLS_KEY = os.environ.get("HLS_TLS_KEY", "")
 DATA_DIR = Path(os.environ.get("HLS_DATA_DIR", str(Path.home() / "hls-grabber-data"))).expanduser()
 MAX_BYTES = int(os.environ.get("HLS_MAX_DOWNLOAD_GB", "8")) * (1024 ** 3)
 MAX_JOBS = int(os.environ.get("HLS_MAX_JOBS", "2"))
@@ -428,7 +431,14 @@ def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     ensure_workers()
     server = ThreadingHTTPServer((BIND, PORT), Handler)
-    print(f"HLS Grabber API слушает {BIND}:{PORT}; для удалённого доступа используй HTTPS reverse proxy", flush=True)
+    if bool(TLS_CERT) != bool(TLS_KEY):
+        sys.exit("Нужно указать одновременно HLS_TLS_CERT и HLS_TLS_KEY")
+    if TLS_CERT:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(TLS_CERT, TLS_KEY)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+    print(f"HLS Grabber API: {'HTTPS' if TLS_CERT else 'HTTP'} {BIND}:{PORT}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
