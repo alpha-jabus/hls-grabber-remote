@@ -1,7 +1,7 @@
 {
   "name": "hls-grabber-remote",
   "private": true,
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "Firefox HLS capture, preview and private download helper",
   "scripts": {
     "test": "node --check extension/background.js && node --check extension/popup.js && node --check extension/options.js && node --check extension/downloads.js && node tests/test_background.cjs && node tests/test_pin_transport.cjs && node tests/test_options.cjs && node tests/test_migration.cjs && python3 -m unittest discover -s tests -v",

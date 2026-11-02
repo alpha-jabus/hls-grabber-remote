@@ -1,12 +1,52 @@
 "use strict";
 
 // Session-only. URLs and bearer/cookie values are not persisted in extension storage.
-// Explicit per-tab capture: never observe HLS traffic until the user enables a tab.
+// Explicit per-tab capture: never observe HLS/DASH traffic until the user enables a tab.
 const enabledTabs = new Map();
 const streamsByTab = new Map();
 const MAX_PER_TAB = 30;
 const MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const previewCache = new Map();
+// Only hold outgoing headers until response Content-Type identifies an extensionless
+// HLS/DASH manifest. Bounded, short-lived, in memory; never saved to disk.
+const pendingResponseHeaders = new Map();
+const MAX_PENDING_REQUESTS = 120;
+const PENDING_AGE_MS = 20_000;
+
+function mediaTypeFromUrl(url) {
+  if (/\.m3u8(?:[?#]|$)/i.test(url)) return "hls";
+  if (/\.mpd(?:[?#]|$)/i.test(url)) return "dash";
+  return null;
+}
+function mediaTypeFromContentType(headers) {
+  const contentType = (headers || []).find(h => h.name?.toLowerCase() === "content-type")?.value || "";
+  const value = contentType.split(";", 1)[0].trim().toLowerCase();
+  if (value === "application/dash+xml") return "dash";
+  if (["application/vnd.apple.mpegurl", "application/x-mpegurl", "audio/mpegurl", "audio/x-mpegurl"].includes(value)) return "hls";
+  return null;
+}
+function rememberStream(tabId, url, headers, source, kind) {
+  const now = Date.now();
+  const data = freshStreams(tabId).filter(s => s.url !== url);
+  data.unshift({url, headers, seen:now, source, kind});
+  streamsByTab.set(tabId, data.slice(0, MAX_PER_TAB));
+  setBadge(tabId);
+}
+function rememberPending(details, headers) {
+  if (typeof details.requestId !== "string") return;
+  const now = Date.now();
+  for (const [requestId, saved] of pendingResponseHeaders) {
+    if (now - saved.time > PENDING_AGE_MS) pendingResponseHeaders.delete(requestId);
+  }
+  pendingResponseHeaders.set(details.requestId, {
+    tabId:details.tabId, url:details.url, headers, time:now,
+    source:details.originUrl || details.documentUrl || ""
+  });
+  while (pendingResponseHeaders.size > MAX_PENDING_REQUESTS) {
+    pendingResponseHeaders.delete(pendingResponseHeaders.keys().next().value);
+  }
+}
+
 
 const keepNames = new Set([
   "origin", "referer", "authorization", "authorizations",
@@ -35,30 +75,43 @@ function setBadge(tabId) {
 
 browser.webRequest.onSendHeaders.addListener(details => {
   if (details.tabId < 0 || !enabledTabs.has(details.tabId) || !/^https?:\/\//i.test(details.url)) return;
-  // Match signed URLs with query arguments as well.
-  if (!/\.m3u8(?:[?#]|$)/i.test(details.url)) return;
-
   const headers = [];
   for (const item of details.requestHeaders || []) {
     if (!item.name || !relevantHeader(item.name)) continue;
-    if (typeof item.value !== "string") continue;
-    if (/[\r\n\0]/.test(item.value)) continue;
-    headers.push({ name: item.name, value: item.value });
+    if (typeof item.value !== "string" || /[\r\n\0]/.test(item.value)) continue;
+    headers.push({name:item.name,value:item.value});
   }
+  const kind = mediaTypeFromUrl(details.url);
+  if (kind) {
+    rememberStream(details.tabId, details.url, headers,
+      details.originUrl || details.documentUrl || "", kind);
+  }
+  // For a URL like /player/manifest?id=... the response MIME type can
+  // identify the MPD even though there is no .mpd extension in its URL.
+  rememberPending(details, headers);
+}, {urls:["<all_urls>"]}, ["requestHeaders"]);
 
-  const now = Date.now();
-  const data = freshStreams(details.tabId).filter(s => s.url !== details.url);
-  data.unshift({
-    url: details.url,
-    headers,
-    seen: now,
-    source: details.originUrl || details.documentUrl || ""
-  });
-  streamsByTab.set(details.tabId, data.slice(0, MAX_PER_TAB));
-  setBadge(details.tabId);
-}, {urls: ["<all_urls>"]}, ["requestHeaders"]);
+browser.webRequest.onHeadersReceived.addListener(details => {
+  const saved = pendingResponseHeaders.get(details.requestId);
+  if (!saved) return;
+  pendingResponseHeaders.delete(details.requestId);
+  if (saved.tabId !== details.tabId || !enabledTabs.has(details.tabId) ||
+      Date.now() - saved.time > PENDING_AGE_MS ||
+      (typeof details.statusCode === "number" && (details.statusCode < 200 || details.statusCode >= 300))) return;
+  const kind = mediaTypeFromContentType(details.responseHeaders);
+  if (kind && saved.url === details.url) {
+    rememberStream(saved.tabId, saved.url, saved.headers, saved.source, kind);
+  }
+}, {urls:["<all_urls>"]}, ["responseHeaders"]);
+
+browser.webRequest.onErrorOccurred.addListener(details => {
+  pendingResponseHeaders.delete(details.requestId);
+}, {urls:["<all_urls>"]});
 
 function dropTab(tabId) {
+  for (const [requestId, saved] of pendingResponseHeaders) {
+    if (saved.tabId === tabId) pendingResponseHeaders.delete(requestId);
+  }
   streamsByTab.delete(tabId);
   previewCache.delete(tabId);
 }

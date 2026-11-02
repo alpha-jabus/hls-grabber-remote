@@ -9,7 +9,7 @@ let failSave=true;
 const browser={
  runtime:{onMessage:reg('msg'),sendNativeMessage:async(name,payload)=>{ops.push(payload.action);return payload.action==='pinned_config_get'?{ok:true,config:legacy}:{ok:true,removed:true};}},
  storage:{local:{get:async keys=>Object.fromEntries(keys.map(k=>[k,saved[k]])),set:async values=>{if(failSave)throw Error('disk full');Object.assign(saved,values);}}},
- webRequest:{onSendHeaders:reg('send')},
+ webRequest:{onSendHeaders:reg('send'),onHeadersReceived:reg('received'),onErrorOccurred:reg('networkError')},
  tabs:{onRemoved:reg('removed'),onUpdated:reg('updated')},
  browserAction:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}}
 };

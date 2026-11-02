@@ -51,6 +51,10 @@ function commandFor(stream, isPlayer) {
   let args = [isPlayer ? "ffplay" : "ffmpeg", "-hide_banner"];
   if (!isPlayer) args.push("-nostdin", "-n");
   args.push(...headerArgs(stream.headers), "-i", stream.url);
+  if (!isPlayer && (stream.kind === "dash" || /\.mpd(?:[?#]|$)/i.test(stream.url))) {
+    // DASH commonly carries audio and video as separate AdaptationSets.
+    args.push("-map", "0:v:0?", "-map", "0:a:0?");
+  }
   if (isPlayer) args.push("-autoexit");
   else {
     if (el("format").value === "mp4") args.push("-c", "copy", "-movflags", "+faststart");
@@ -72,8 +76,9 @@ function safeTitle(tab) {
   return (tab.title || "video").replace(/[\\/\x00-\x1f:*?"<>|]/g, "_").trim().slice(0,95) || "video";
 }
 function streamLabel(stream, index) {
-  try { return new URL(stream.url).hostname + " · поток " + (index + 1); }
-  catch (_) { return "HLS поток " + (index + 1); }
+  const kind = stream.kind === "dash" || /\.mpd(?:[?#]|$)/i.test(stream.url) ? "DASH" : "HLS";
+  try { return kind + " · " + new URL(stream.url).hostname + " · поток " + (index + 1); }
+  catch (_) { return kind + " · поток " + (index + 1); }
 }
 function readableSeconds(x) {
   if (typeof x !== "number" || !Number.isFinite(x)) return "";
@@ -122,7 +127,7 @@ function renderStreams() {
   const token = generation;
   el("summary").textContent = activeStreams.length
     ? `Найдено потоков: ${activeStreams.length}. ${remoteEnabled ? "Загружаю предпросмотры с сервера…" : "Для миниатюр подключи сервер в настройках."}`
-    : "Пока нет .m3u8. Обнови страницу и запусти воспроизведение.";
+    : "Пока нет HLS (.m3u8) или DASH (.mpd). Обнови страницу и запусти воспроизведение.";
   const preloadItems = [];
   activeStreams.forEach((stream, index) => {
     const wrapper = make("article", "stream");
@@ -193,7 +198,7 @@ async function reloadStreams() {
   if (activeTabId === null) return;
   const response = await browser.runtime.sendMessage({type:"streams", tabId:activeTabId});
   const streams = response.streams || [];
-  const signature = JSON.stringify(streams.map(s => s.url)) + ":" + remoteEnabled;
+  const signature = JSON.stringify(streams.map(s => [s.url, s.kind])) + ":" + remoteEnabled;
   activeStreams = streams;
   if (signature !== lastSignature) {
     lastSignature = signature;

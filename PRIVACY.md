@@ -1,6 +1,6 @@
 # HLS Grabber privacy notice / Политика конфиденциальности
 
-Last updated: 2026-10-17
+Last updated: 2026-11-02
 
 HLS Grabber is an open-source Firefox extension. The maintainers do not operate
 a central collection server and do not receive browsing history, cookies,
@@ -8,7 +8,7 @@ credentials or downloaded video from the extension.
 
 ## Data handled in Firefox
 
-The extension only records HLS (`.m3u8`) requests in a tab after the user presses
+The extension only records HLS (`.m3u8`) or MPEG-DASH (`.mpd`) requests in a tab after the user presses
 **Enable capture on this tab**. Firefox will ask for website access; CDN media
 may come from a different domain than the visible website. Captured playlist URLs,
 request headers (potentially `Cookie`, `Authorization` and custom tokens), request
@@ -63,4 +63,4 @@ Remote jobs store a SHA-256 digest of the complete playlist URL (never the origi
 
 ## Pinned HTTPS (2.3.0)
 
-On Linux, choosing pinned HTTPS transfers API credentials and the selected stream URL/headers only through the installed local Native Messaging helper after it has validated the peer certificate SHA-256 fingerprint. Local settings (including the remote API token and trusted certificate fingerprint) are stored in Firefox `browser.storage.local`, not a separate `client.json` file. This storage is persistent but not separately encrypted; the JSON editor is a UI view of these values. During an upgrade from 2.3.0, the native helper reads the old 0600 `client.json` once and removes it only after the extension has saved the settings successfully. No remote service receives this configuration file as a whole; only the target API receives bearer credentials and requested HLS data after successful TLS pin verification.
+On Linux, choosing pinned HTTPS transfers API credentials and the selected stream URL/headers only through the installed local Native Messaging helper after it has validated the peer certificate SHA-256 fingerprint. Local settings (including the remote API token and trusted certificate fingerprint) are stored in Firefox `browser.storage.local`, not a separate `client.json` file. This storage is persistent but not separately encrypted; the JSON editor is a UI view of these values. During an upgrade from 2.3.0, the native helper reads the old 0600 `client.json` once and removes it only after the extension has saved the settings successfully. No remote service receives this configuration file as a whole; only the target API receives bearer credentials and requested HLS/DASH data after successful TLS pin verification.
