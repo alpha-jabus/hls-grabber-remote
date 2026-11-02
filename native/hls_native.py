@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Firefox native messaging host and detached ffmpeg worker. Linux, Python 3.9+."""
 import json
+import base64
+from pinned_client import read_config, validate_config, pinned_request, CONFIG_FILE
 import os
 from pathlib import Path
 import re
@@ -232,6 +234,34 @@ def recent_jobs():
     return records[:12]
 
 
+def respond_chunks(payload):
+    # Firefox native messaging imposes a 1-MB-per-message limit.
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    if len(encoded) < 600000:
+        respond(payload)
+        return
+    count = (len(encoded) + 449999) // 450000
+    for i in range(count):
+        part = encoded[i * 450000:(i + 1) * 450000]
+        respond({'native_chunk': True, 'part': i, 'total': count,
+                 'data': base64.b64encode(part).decode('ascii')})
+
+
+def cleanup_legacy_config(expected):
+    """Remove only the exact legacy config already copied into Firefox storage."""
+    valid = validate_config(expected)
+    current = read_config()
+    if current is None:
+        return {'ok': True, 'removed': False}
+    if current != valid:
+        raise ValueError('Старый client.json изменился после импорта, файл не удалён')
+    # No arbitrary paths accepted; only the fixed legacy location is removable.
+    if CONFIG_FILE.is_symlink():
+        raise ValueError('Нельзя удалять символьную ссылку')
+    CONFIG_FILE.unlink()
+    return {'ok': True, 'removed': True}
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--worker":
         sys.exit(run_worker())
@@ -243,9 +273,15 @@ def main():
             respond(start_download(msg))
         elif msg.get("action") == "jobs":
             respond({"ok": True, "jobs":recent_jobs()})
+        elif msg.get("action") == "pinned_config_get":
+            respond({"ok": True, "config": read_config()})
+        elif msg.get("action") == "pinned_config_cleanup":
+            respond(cleanup_legacy_config(msg.get("config")))
+        elif msg.get("action") == "pinned_request":
+            respond_chunks(pinned_request(msg.get("path"), msg.get("payload"), config=msg.get("config")))
         else:
             respond({"ok":False,"error":"Unknown native action"})
-    except (ValueError, OSError, EOFError) as exc:
+    except (ValueError, OSError, EOFError, TimeoutError) as exc:
         respond({"ok":False,"error":str(exc)[:400]})
 
 

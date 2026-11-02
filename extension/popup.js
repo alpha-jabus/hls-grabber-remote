@@ -235,9 +235,6 @@ async function loadSettings() {
   const r = await browser.runtime.sendMessage({type:"getSettings"});
   const settings = r.settings || {};
   remoteEnabled = settings.enabled === true;
-  el("remoteEnabled").checked = remoteEnabled;
-  el("remoteUrl").value = settings.url || "";
-  el("remoteToken").value = settings.token || "";
   el("modeLabel").textContent = remoteEnabled ? "· на сервере" : "· на компьютере";
 }
 async function initialize() {
@@ -273,28 +270,7 @@ el("captureToggle").addEventListener("click", async () => {
   } catch (e) { notify(e.message); }
 });
 el("downloadsPage").addEventListener("click", () => browser.tabs.create({url:browser.runtime.getURL("downloads.html")}));
-el("settingsToggle").addEventListener("click", () => el("settings").classList.toggle("hidden"));
-el("saveSettings").addEventListener("click", async () => {
-  try {
-    if (el("remoteEnabled").checked) {
-      await requestServerHostAccess();
-      await requestDataConsent();
-    }
-  } catch (e) { notify(e.message); return; }
-  const response = await browser.runtime.sendMessage({
-    type:"saveSettings", enabled:el("remoteEnabled").checked,
-    url:el("remoteUrl").value.trim(), token:el("remoteToken").value
-  });
-  if (!response.ok) return notify(response.error || "Не удалось сохранить");
-  await loadSettings();
-  lastSignature = ""; previews.clear();
-  notify("Настройки сохранены. " + (remoteEnabled ? "Используется сервер." : "Используется локальный помощник."));
-  await Promise.all([reloadStreams(),reloadJobs()]);
-});
-el("testRemote").addEventListener("click", async () => {
-  const response = await browser.runtime.sendMessage({type:"testRemote"});
-  notify(response.ok ? "Сервер доступен, авторизация успешна." : "Ошибка соединения: " + (response.error || "неизвестно"));
-});
+el("settingsToggle").addEventListener("click", () => browser.runtime.openOptionsPage());
 el("clear").addEventListener("click", async () => {
   if (activeTabId !== null) {
     await browser.runtime.sendMessage({type:"clear",tabId:activeTabId});

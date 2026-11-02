@@ -60,3 +60,7 @@ the repository's GitHub Issues (never post private URLs/tokens publicly).
 ### v2.2 encrypted downloads and deduplication
 
 Remote jobs store a SHA-256 digest of the complete playlist URL (never the original URL or request headers) to recognize repeat downloads. Hash digests can potentially be guessed for predictable URLs; API access remains authenticated. Encrypted files are stored on the user's server and decrypted using an independent private key file held by the server owner. The server does not transmit this key via its API. The separate downloads tab displays job metadata only.
+
+## Pinned HTTPS (2.3.0)
+
+On Linux, choosing pinned HTTPS transfers API credentials and the selected stream URL/headers only through the installed local Native Messaging helper after it has validated the peer certificate SHA-256 fingerprint. Local settings (including the remote API token and trusted certificate fingerprint) are stored in Firefox `browser.storage.local`, not a separate `client.json` file. This storage is persistent but not separately encrypted; the JSON editor is a UI view of these values. During an upgrade from 2.3.0, the native helper reads the old 0600 `client.json` once and removes it only after the extension has saved the settings successfully. No remote service receives this configuration file as a whole; only the target API receives bearer credentials and requested HLS data after successful TLS pin verification.
