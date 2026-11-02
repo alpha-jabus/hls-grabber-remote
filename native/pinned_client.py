@@ -11,10 +11,9 @@ import os
 from pathlib import Path
 import re
 import ssl
-import tempfile
 from urllib.parse import urlsplit
 
-CONFIG_FILE = Path.home() / '.config' / 'hls-grabber' / 'client.json'
+CONFIG_FILE = Path.home() / '.config' / 'hls-grabber' / 'client.json'  # Legacy read-only migration
 VALID_PATHS = {'health', 'jobs', 'preview', 'download'}
 MAX_RESPONSE = 6_000_000
 
@@ -49,6 +48,7 @@ def validate_config(value):
 
 
 def read_config():
+    """Read 2.3.0 client.json for one-time migration only; never used for requests."""
     if CONFIG_FILE.is_symlink():
         raise ValueError('Конфигурация не должна быть символьной ссылкой')
     try:
@@ -62,34 +62,12 @@ def read_config():
     return validate_config(json.loads(data))
 
 
-def write_config(value):
-    valid = validate_config(value)
-    folder = CONFIG_FILE.parent
-    folder.mkdir(parents=True, mode=0o700, exist_ok=True)
-    os.chmod(folder, 0o700)
-    if CONFIG_FILE.is_symlink():
-        raise ValueError('Конфигурация не должна быть символьной ссылкой')
-    fd, name = tempfile.mkstemp(prefix='.client-', suffix='.tmp', dir=folder)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            os.fchmod(f.fileno(), 0o600)
-            json.dump(valid, f, indent=2, ensure_ascii=False)
-            f.write('\n')
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(name, CONFIG_FILE)
-    finally:
-        if os.path.exists(name):
-            os.unlink(name)
-    return valid
-
-
 def pinned_request(path, payload=None, *, config=None, timeout=None):
     if path not in VALID_PATHS:
         raise ValueError('Недопустимый API-метод')
-    cfg = validate_config(config) if config is not None else read_config()
-    if cfg is None:
-        raise ValueError('Сначала сохрани конфигурацию pinned HTTPS')
+    if config is None:
+        raise ValueError('Настройки TLS должны приходить из Firefox; client.json больше не используется')
+    cfg = validate_config(config)
     u = urlsplit(cfg['url'])
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.minimum_version = ssl.TLSVersion.TLSv1_2

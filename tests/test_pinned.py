@@ -22,17 +22,33 @@ p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
 
 class TestPinnedClient(unittest.TestCase):
-    def test_config_file_and_rejection(self):
+    def test_config_validation_and_legacy_migration_cleanup(self):
         with tempfile.TemporaryDirectory() as d:
-            with patch.object(p, 'CONFIG_FILE', Path(d)/'cfg'/'client.json'):
-                cfg={'url':'https://192.168.0.190:8765','token':'a'*64,'fingerprint':'AA:'*31+'AA'}
-                saved=p.write_config(cfg)
-                self.assertEqual(saved['fingerprint'],'aa'*32)
-                self.assertEqual(p.read_config(), saved)
-                self.assertEqual(p.CONFIG_FILE.stat().st_mode & 0o777, 0o600)
-                with self.assertRaises(ValueError):p.write_config({**cfg,'url':'http://192.168.0.190:8765'})
-                with self.assertRaises(ValueError):p.write_config({**cfg,'fingerprint':'unverified'})
-                with self.assertRaises(ValueError):p.write_config({**cfg,'extra':'invalid'})
+            path = Path(d) / 'cfg' / 'client.json'
+            path.parent.mkdir()
+            cfg = {'url':'https://192.168.0.190:8765','token':'a'*64,'fingerprint':'AA:'*31+'AA'}
+            expected = p.validate_config(cfg)
+            self.assertEqual(expected['fingerprint'], 'aa'*32)
+            for change in ({'url':'http://192.168.0.190:8765'},
+                           {'fingerprint':'unverified'}, {'extra':'invalid'}):
+                with self.assertRaises(ValueError): p.validate_config({**cfg, **change})
+            # 2.3.0 stored a client.json. 2.3.1 reads it once without creating files.
+            path.write_text(json.dumps(cfg), encoding='utf-8')
+            import sys as _sys
+            _sys.path.insert(0, str(ROOT/'native'))
+            import hls_native as native
+            with patch.object(p, 'CONFIG_FILE', path), patch.object(native, 'CONFIG_FILE', path), \
+                 patch.object(native, 'read_config', p.read_config):
+                self.assertEqual(p.read_config(), expected)
+                with self.assertRaises(ValueError):
+                    native.cleanup_legacy_config({**cfg, 'token':'b'*64})
+                self.assertTrue(path.exists(), 'Wrong config deleted old file')
+                result = native.cleanup_legacy_config(cfg)
+                self.assertTrue(result['removed'])
+                self.assertFalse(path.exists())
+                with self.assertRaisesRegex(ValueError, 'Firefox'):
+                    p.pinned_request('health')
+            self.assertFalse(path.exists(), 'New transport wrote client.json')
 
     @unittest.skipUnless(shutil.which('openssl'), 'openssl required')
     def test_pin_checked_before_any_secret_is_sent(self):

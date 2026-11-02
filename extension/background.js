@@ -87,23 +87,63 @@ function normalizeEndpoint(endpoint) {
   }
   return u.origin;
 }
-async function getSettings() {
-  const settings = await browser.storage.local.get(["remoteEnabled", "remoteUrl", "remoteToken", "remoteMode"]);
-  if (settings.remoteMode === "pinned") {
-    try {
-      const config = await browser.runtime.sendNativeMessage("local.hls_grabber", {action:"pinned_config_get"});
-      if (!config?.ok) throw new Error(config?.error || "Невозможно прочитать файл конфигурации");
-      return {enabled:settings.remoteEnabled === true, mode:"pinned", url:config.config?.url || "",
-        token:config.config?.token || "", fingerprint:config.config?.fingerprint || "", configPath:config.path};
-    } catch (e) {
-      return {enabled:settings.remoteEnabled === true, mode:"pinned", url:"",token:"",
-        error:"Локальный помощник недоступен: " + e.message};
+// All client settings live in Firefox storage.local. No standalone client.json is written.
+// On upgrade from 2.3.0, import the old file once before removing it.
+let legacyImport = null;
+function validateRemoteSettings(message) {
+  const enabled = message.enabled === true;
+  const mode = message.mode === "pinned" ? "pinned" : "direct";
+  const rawUrl = typeof message.url === "string" ? message.url.trim() : "";
+  const token = message.token;
+  const fingerprint = typeof message.fingerprint === "string" ? message.fingerprint.replace(/[:\s]/g, "").toLowerCase() : "";
+  if (typeof token !== "string" || token.length > 1024) throw new Error("API-токен: недопустимое значение (максимум 1024 символа)");
+  if (enabled && (token.length < 32 || /[^\x21-\x7e]/.test(token))) {
+    throw new Error("API-токен: требуется 32–1024 ASCII-символа без пробелов");
+  }
+  let url = rawUrl;
+  if (enabled || rawUrl) {
+    try { url = normalizeEndpoint(rawUrl); }
+    catch (e) { throw new Error("Адрес API: " + e.message); }
+    if (mode === "pinned" && !url.startsWith("https://")) {
+      throw new Error("Адрес API: режим TLS pinning требует https://");
     }
   }
-  return {enabled:settings.remoteEnabled === true, mode:"direct",
-    url:settings.remoteUrl || "", token:settings.remoteToken || "", fingerprint:""};
+  if (enabled && mode === "pinned" && !/^[0-9a-f]{64}$/.test(fingerprint)) {
+    throw new Error("SHA-256: нужен отпечаток сертификата из 64 hex-символов");
+  }
+  if (fingerprint && !/^[0-9a-f]{64}$/.test(fingerprint)) {
+    throw new Error("SHA-256: в отпечатке допустимы только 64 hex-символа и двоеточия");
+  }
+  return {enabled,mode,url,token,fingerprint};
 }
-async function pinnedNativeRequest(path, payload) {
+async function importLegacyPinned() {
+  const state = await browser.storage.local.get(["remoteEnabled", "remoteMode", "remoteUrl", "remoteToken", "remoteFingerprint", "remoteSettingsVersion"]);
+  if (state.remoteSettingsVersion === 231) return;
+  if (state.remoteMode !== "pinned" || state.remoteToken || state.remoteUrl || state.remoteFingerprint) return;
+  const imported = await browser.runtime.sendNativeMessage("local.hls_grabber", {action:"pinned_config_get"});
+  if (!imported?.ok || !imported.config) {
+    throw new Error(imported?.error || "Старый client.json не найден. Введи настройки заново.");
+  }
+  const cfg = validateRemoteSettings({enabled:true,mode:"pinned",...imported.config});
+  await browser.storage.local.set({remoteUrl:cfg.url, remoteToken:cfg.token, remoteFingerprint:cfg.fingerprint,remoteSettingsVersion:231});
+  // Only remove the legacy file if it still contains exactly the saved configuration.
+  try { await browser.runtime.sendNativeMessage("local.hls_grabber", {action:"pinned_config_cleanup",config:imported.config}); }
+  catch (_) { /* Stored settings remain valid if cleanup is unavailable. */ }
+}
+async function getSettings() {
+  const state = await browser.storage.local.get(["remoteEnabled", "remoteMode", "remoteUrl", "remoteToken", "remoteFingerprint"]);
+  let error = "";
+  if (state.remoteMode === "pinned" && !state.remoteUrl && !state.remoteToken && !state.remoteFingerprint) {
+    try {
+      if (!legacyImport) legacyImport = importLegacyPinned().finally(() => { legacyImport = null; });
+      await legacyImport;
+    } catch (e) { error = "Импорт старой конфигурации: " + e.message; }
+  }
+  const saved = await browser.storage.local.get(["remoteEnabled", "remoteMode", "remoteUrl", "remoteToken", "remoteFingerprint"]);
+  return {enabled:saved.remoteEnabled === true,mode:saved.remoteMode === "pinned" ? "pinned" : "direct",
+    url:saved.remoteUrl || "",token:saved.remoteToken || "",fingerprint:saved.remoteFingerprint || "",error};
+}
+async function pinnedNativeRequest(path, payload, config) {
   // connectNative, unlike sendNativeMessage, accepts multiple <=1 MB responses.
   return new Promise((resolve, reject) => {
     const port = browser.runtime.connectNative("local.hls_grabber");
@@ -138,27 +178,24 @@ async function pinnedNativeRequest(path, payload) {
     port.onDisconnect.addListener(() => {
       if (!completed) { completed = true; reject(new Error(browser.runtime.lastError?.message || "Native Messaging прерван")); }
     });
-    port.postMessage({action:"pinned_request",path,payload});
+    port.postMessage({action:"pinned_request",path,payload,config});
   });
 }
-async function remoteCall(path, payload) {
+async function assertRemoteConsent() {
   const permissions = await browser.permissions.getAll();
   const accepted = permissions.data_collection || [];
   if (!["authenticationInfo", "browsingActivity", "websiteContent"].every(p => accepted.includes(p))) {
-    throw new Error("Для передачи ссылок и заголовков нужен отдельный доступ в Firefox");
+    throw new Error("Разрешения Firefox: разреши передачу ссылок и заголовков в настройках дополнения");
   }
-  const state = await browser.storage.local.get(["remoteEnabled", "remoteMode"]);
-  if (state.remoteEnabled !== true) throw new Error("Включи сервер в настройках");
-  if (state.remoteMode === "pinned") return pinnedNativeRequest(path, payload);
-  const s = await getSettings();
-  if (!s.url || !s.token) throw new Error("Укажи сервер и API-токен в настройках");
-  const endpoint = normalizeEndpoint(s.url);
+}
+async function directRemoteRequest(path, payload, settings) {
+  const endpoint = normalizeEndpoint(settings.url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), path === "preview" ? 52000 : 15000);
   try {
     const response = await fetch(endpoint + "/api/v1/" + path, {
       method: payload === undefined ? "GET" : "POST",
-      headers: {"Authorization":"Bearer " + s.token, ...(payload === undefined ? {} : {"Content-Type":"application/json"})},
+      headers: {"Authorization":"Bearer " + settings.token, ...(payload === undefined ? {} : {"Content-Type":"application/json"})},
       ...(payload === undefined ? {} : {body:JSON.stringify(payload)}),
       cache:"no-store", credentials:"omit", redirect:"error", signal:controller.signal
     });
@@ -166,6 +203,16 @@ async function remoteCall(path, payload) {
     if (!response.ok || !obj.ok) throw new Error(obj.error || "HTTP " + response.status);
     return obj;
   } finally { clearTimeout(timer); }
+}
+async function remoteCall(path, payload, draft) {
+  await assertRemoteConsent();
+  const s = draft || await getSettings();
+  if (!s.enabled) throw new Error("Включи сервер в настройках");
+  const valid = validateRemoteSettings(s);
+  if (valid.mode === "pinned") {
+    return pinnedNativeRequest(path, payload, {url:valid.url,token:valid.token,fingerprint:valid.fingerprint});
+  }
+  return directRemoteRequest(path, payload, valid);
 }
 async function remoteOrLocalDownload(found, message) {
   const settings = await getSettings();
@@ -232,26 +279,17 @@ browser.runtime.onMessage.addListener(async (message) => {
   if (message.type === "getSettings") return {ok:true, settings:await getSettings()};
   if (message.type === "saveSettings") {
     try {
-      const enabled = message.enabled === true;
-      const mode = message.mode === "pinned" ? "pinned" : "direct";
-      if (mode === "pinned") {
-        // All pinned secrets are stored in a 0600 file by the native helper, not Firefox storage.
-        const config = await browser.runtime.sendNativeMessage("local.hls_grabber", {
-          action:"pinned_config_save",
-          config:{url:message.url,token:message.token,fingerprint:message.fingerprint}
-        });
-        if (!config?.ok) throw new Error(config?.error || "Не удалось записать JSON-конфигурацию");
-        await browser.storage.local.set({remoteEnabled:enabled, remoteMode:mode, remoteUrl:"", remoteToken:""});
-      } else {
-        const url = enabled ? normalizeEndpoint(message.url) : (message.url ? normalizeEndpoint(message.url) : "");
-        const token = String(message.token || "");
-        if (enabled && token.length < 32) throw new Error("API-токен слишком короткий");
-        if (token.length > 1024) throw new Error("API-токен слишком длинный");
-        await browser.storage.local.set({remoteEnabled:enabled,remoteMode:mode,remoteUrl:url,remoteToken:token});
-      }
+      const cfg = validateRemoteSettings(message);
+      // One atomic storage operation: invalid drafts never replace last good settings.
+      await browser.storage.local.set({remoteEnabled:cfg.enabled, remoteMode:cfg.mode,
+        remoteUrl:cfg.url, remoteToken:cfg.token, remoteFingerprint:cfg.fingerprint,remoteSettingsVersion:231});
       previewCache.clear();
       return {ok:true};
     } catch (error) { return {ok:false,error:error.message}; }
+  }
+  if (message.type === "testRemoteDraft") {
+    try { return await remoteCall("health", undefined, message); }
+    catch (error) { return {ok:false,error:error.message}; }
   }
   if (message.type === "preview") {
     try { return await streamPreview(message); }

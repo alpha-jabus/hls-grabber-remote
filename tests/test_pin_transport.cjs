@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 let handler, send, updated, removed, calls = [], disconnects = 0;
-let settings = {remoteEnabled:true,remoteMode:'pinned',remoteUrl:'',remoteToken:''};
+let settings = {remoteEnabled:true,remoteMode:'pinned',remoteUrl:'https://192.168.0.190:8765',remoteToken:'x'.repeat(64),remoteFingerprint:'1'.repeat(64)};
 let nativeResult = {ok:true,service:'hls-grabber'};
 const reg = setter => ({addListener:fn=>setter(fn)});
 const browser = {
@@ -30,7 +30,7 @@ const browser = {
         disconnect(){disconnects++;disconnectHandler?.();}
       };
     },
-    sendNativeMessage: async(name,payload)=> ({ok:true,config:{url:'https://192.168.0.190:8765',token:'x'.repeat(64),fingerprint:'1'.repeat(64)}})
+    sendNativeMessage: async(name,payload)=> {throw new Error('No native file access expected');}
   },
   permissions:{getAll:async()=>({data_collection:['authenticationInfo','browsingActivity','websiteContent']}),contains:async()=>true},
   storage:{local:{get:async keys=>Object.fromEntries(keys.map(k=>[k,settings[k]])),set:async x=>Object.assign(settings,x)}},
@@ -41,12 +41,21 @@ vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),
  {browser,Map,Set,Date,URL,AbortController,TextDecoder,Uint8Array,atob,console,fetch:()=>{throw new Error('Direct browser fetch must not be used for pinned mode');},setTimeout,clearTimeout});
 (async()=>{
   let health=await handler({type:'testRemote'});
-  assert.equal(health.ok,true);assert.equal(calls.at(-1).action,'pinned_request');assert.equal(calls.at(-1).path,'health');assert.equal(calls.at(-1).payload,undefined);
+  assert.equal(health.ok,true);assert.equal(calls.at(-1).action,'pinned_request');assert.equal(calls.at(-1).path,'health');assert.equal(calls.at(-1).payload,undefined); assert.equal(calls.at(-1).config.fingerprint,'1'.repeat(64));
   await handler({type:'enableCapture',tabId:99});
   send({tabId:99,url:'https://media.example.org/master.m3u8',requestHeaders:[{name:'Cookie',value:'private'}]});
   let preview=await handler({type:'preview',tabId:99,url:'https://media.example.org/master.m3u8'});
   assert.equal(preview.ok,true);
   assert.equal(calls.at(-1).payload.headers[0].value,'private');
+  // Draft health checks must not persist anything and must send the draft pin.
+  let candidate = await handler({type:'testRemoteDraft',enabled:true,mode:'pinned',url:'https://192.168.0.190:8765',token:'y'.repeat(64),fingerprint:'2'.repeat(64)});
+  assert.equal(candidate.ok,true);
+  assert.equal(calls.at(-1).config.token,'y'.repeat(64));
+  assert.equal(settings.remoteToken,'x'.repeat(64));
+  const previous = JSON.stringify(settings);
+  const invalid=await handler({type:'saveSettings',enabled:true,mode:'pinned',url:'https://192.168.0.190:8765',token:'abc',fingerprint:'f'.repeat(64)});
+  assert.equal(invalid.ok,false);
+  assert.equal(JSON.stringify(settings),previous,'Failed validation replaced saved config');
   nativeResult={ok:false,error:'TLS PIN MISMATCH: no data transmitted'};
   health=await handler({type:'testRemote'});
   assert.equal(health.ok,false);assert.match(health.error,/PIN MISMATCH/);
