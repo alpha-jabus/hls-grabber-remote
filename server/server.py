@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authenticated HLS preview/download HTTP backend. Python 3.9+ + ffmpeg/ffprobe."""
+"""Authenticated HLS/DASH preview/download HTTP backend. Python 3.9+ + ffmpeg/ffprobe."""
 import base64
 import hashlib
 import queue
@@ -108,7 +108,7 @@ def clean_name(name):
 
 
 def input_args(url, headers):
-    # Limit protocols of nested HLS references; prohibit file:, ftp:, data:, etc.
+    # Limit protocols of nested HLS and DASH references; prohibit file:, ftp:, data:, etc.
     args = ["-protocol_whitelist", "http,https,tcp,tls,crypto",
             "-rw_timeout", "9000000"]
     extra = []

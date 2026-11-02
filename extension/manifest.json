@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "HLS Grabber",
-  "version": "2.3.1",
-  "description": "Discover HLS playlists on enabled tabs, preview clips with your own server, or download locally.",
+  "version": "2.4.0",
+  "description": "Discover HLS and MPEG-DASH streams on enabled tabs, preview video, and download with your own server.",
   "browser_specific_settings": {
     "gecko": {
       "id": "hls-grabber@local.invalid",

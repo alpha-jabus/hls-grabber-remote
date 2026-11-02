@@ -7,7 +7,7 @@ let settings = {remoteEnabled:true,remoteMode:'pinned',remoteUrl:'https://192.16
 let nativeResult = {ok:true,service:'hls-grabber'};
 const reg = setter => ({addListener:fn=>setter(fn)});
 const browser = {
-  webRequest:{onSendHeaders:reg(fn=>send=fn)},
+  webRequest:{onSendHeaders:reg(fn=>send=fn),onHeadersReceived:reg(fn=>{}),onErrorOccurred:reg(fn=>{})},
   runtime:{
     onMessage:reg(fn=>handler=fn),
     connectNative(name){

@@ -77,7 +77,7 @@ def select_output(name, file_format):
 def validate_stream(msg):
     url = msg.get("url", "")
     if not isinstance(url, str) or not (0 < len(url) <= 250000):
-        raise ValueError("Invalid HLS URL")
+        raise ValueError("Invalid HLS/DASH URL")
     parsed = urlsplit(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError("Only HTTP(S) URLs can be downloaded")
